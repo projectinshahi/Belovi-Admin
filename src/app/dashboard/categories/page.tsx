@@ -41,6 +41,11 @@ interface ICategory {
  * Mirrors `MAX_CATEGORIES` in the backend's categoryController, which is the
  * real gate — this copy only keeps the studio from composing a category the API
  * would then refuse.
+ *
+ * What is created here is the whole of the storefront's category system: its
+ * Shop menu, homepage Category Section, search chips and shop filter are built
+ * from these rows and nothing else. An empty table means a storefront with no
+ * categories on it.
  */
 const MAX_CATEGORIES = 8;
 
@@ -63,40 +68,6 @@ export default function CategoriesPage() {
   const [image, setImage] = useState('');
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [status, setStatus] = useState('ACTIVE');
-
-  // Homepage "The Edit" category-grid header (label, heading, Shop All button).
-  const [catSection, setCatSection] = useState<Record<string, string> | null>(null);
-  const [savingCatSection, setSavingCatSection] = useState(false);
-
-  useEffect(() => {
-    api
-      .get('/category-section')
-      .then((r) => { if (r.data?.success) setCatSection(r.data.data); })
-      .catch(() => {});
-  }, []);
-
-  const setCat = (k: string, v: string) =>
-    setCatSection((p) => ({ ...(p || {}), [k]: v }));
-
-  const saveCatSection = async () => {
-    if (!catSection) return;
-    if (!(catSection.heading || '').trim()) {
-      toast.error('A section heading is required.');
-      return;
-    }
-    setSavingCatSection(true);
-    try {
-      const res = await api.put('/category-section', catSection);
-      if (res.data?.success) {
-        setCatSection(res.data.data);
-        toast.success('Category section saved');
-      }
-    } catch (e) {
-      toast.error(apiErrorMessage(e, 'Could not save the category section.'));
-    } finally {
-      setSavingCatSection(false);
-    }
-  };
 
   const fetchCategories = async () => {
     try {
@@ -131,6 +102,7 @@ export default function CategoriesPage() {
   // Drives the disabled Add button. The API rejects an over-cap POST regardless,
   // and `apiErrorMessage` surfaces that message, so this is affordance only.
   const atCap = categories.length >= MAX_CATEGORIES;
+
 
   const openAddForm = () => {
     setEditingId(null);
@@ -234,35 +206,6 @@ export default function CategoriesPage() {
           </Button>
         }
       />
-
-      {/* Homepage "The Edit" category-grid header */}
-      <Reveal>
-        <Card className="p-5 sm:p-6 mb-6">
-          <CardHeader eyebrow="Homepage" title="Category section header" />
-          <p className="font-sans text-[13px] text-muted mt-1 mb-4 max-w-2xl">
-            The label, heading and “Shop All” button above the category grid on the homepage.
-          </p>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <Field label="Section label" htmlFor="cs-eyebrow" hint="Small uppercase line.">
-              <Input id="cs-eyebrow" value={catSection?.eyebrow ?? ''} onChange={(e) => setCat('eyebrow', e.target.value)} placeholder="The Edit" />
-            </Field>
-            <Field label="Section heading" htmlFor="cs-heading" required>
-              <Input id="cs-heading" value={catSection?.heading ?? ''} onChange={(e) => setCat('heading', e.target.value)} placeholder="Find your way in." />
-            </Field>
-            <Field label="Button text" htmlFor="cs-shop-label">
-              <Input id="cs-shop-label" value={catSection?.shopLabel ?? ''} onChange={(e) => setCat('shopLabel', e.target.value)} placeholder="Shop All" />
-            </Field>
-            <Field label="Button link" htmlFor="cs-shop-href" hint="e.g. /products">
-              <Input id="cs-shop-href" value={catSection?.shopHref ?? ''} onChange={(e) => setCat('shopHref', e.target.value)} placeholder="/products" />
-            </Field>
-          </div>
-          <div className="mt-4">
-            <Button variant="solid" size="sm" onClick={saveCatSection} loading={savingCatSection}>
-              Save section
-            </Button>
-          </div>
-        </Card>
-      </Reveal>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Catalog */}
@@ -371,12 +314,17 @@ export default function CategoriesPage() {
               />
 
               <form onSubmit={handleSubmit} className="mt-6 space-y-5">
-                <Field label="Category Name" htmlFor="category-name" required>
+                <Field
+                  label="Category Name"
+                  htmlFor="category-name"
+                  required
+                  hint="Appears on the storefront exactly as typed."
+                >
                   <Input
                     id="category-name"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g. Silk Sarees"
+                    placeholder="e.g. Luxury Furniture"
                     autoComplete="off"
                   />
                 </Field>

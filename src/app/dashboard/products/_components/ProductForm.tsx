@@ -4,8 +4,8 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, useReducedMotion } from 'framer-motion';
 import toast from 'react-hot-toast';
-import { Plus, X } from 'lucide-react';
-import { api, apiErrorMessage, assetUrl } from '@/lib/api';
+import { X } from 'lucide-react';
+import { api, apiErrorMessage } from '@/lib/api';
 import {
   Button,
   Field,
@@ -18,12 +18,11 @@ import {
 import { useCategoryNames } from '@/lib/useCategories';
 import VariantEditor from './VariantEditor';
 import {
-  SHOP_CATEGORIES,
-  EDIT_SECTIONS,
-  LIFE_MODES,
+  MAX_DESCRIPTION,
+  MAX_FEATURE,
   MAX_IMAGES,
+  NEW_IMAGE_TOKEN,
   type IProduct,
-  type ISpec,
   type IVariant,
   type VariantFieldErrors,
 } from './types';
@@ -34,6 +33,13 @@ interface FormErrors {
   variants?: string;
   variantFields?: Record<number, VariantFieldErrors>;
 }
+
+/** One shot in the product gallery: either already stored, or picked just now. */
+type GalleryItem = { url: string; file?: undefined } | { url?: undefined; file: File };
+
+/** Identity that survives reordering — an index key would swap previews around. */
+const galleryKey = (item: GalleryItem) =>
+  item.url ?? `${item.file.name}-${item.file.size}-${item.file.lastModified}`;
 
 const toMaterialsPayload = (raw: string): string[] => {
   const seen = new Set<string>();
@@ -73,42 +79,60 @@ export default function ProductForm({
   const [errors, setErrors] = useState<FormErrors>({});
 
   const [name, setName] = useState(product?.name ?? '');
+  // The paragraph under the discount badge on the product page.
+  // Clipped on load for the same reason as features, below.
+  const [description, setDescription] = useState(
+    (product?.description ?? '').slice(0, MAX_DESCRIPTION)
+  );
 
   const [categoryDraft, setCategory] = useState(product?.category ?? '');
 
-  // Categories the studio created in Category Management; `null` until loaded.
-  // Offered alongside the fixed list, which is always available.
-  const studioCategories = useCategoryNames();
-  const categoryOptions = [
-    ...SHOP_CATEGORIES,
-    // Dedupe: a studio category may share a name with a fixed one.
-    ...(studioCategories ?? []).filter((c) => !SHOP_CATEGORIES.includes(c)),
-  ];
+  // Every category there is, from Category Management. `null` until loaded.
+  const categoryOptions = useCategoryNames();
 
   /**
-   * Blank when this piece is filed under something no longer on offer — a value
-   * from before the list changed, or a studio category since deleted. Saving then
-   * trips the same "Required" check as a new piece, forcing a deliberate re-file
-   * rather than resubmitting a value the API would refuse.
+   * Blank when this piece is filed under something no longer on offer — a
+   * category since deleted or switched off. Saving then trips the same
+   * "Required" check as a new piece, forcing a deliberate re-file rather than
+   * resubmitting a value the API would refuse.
    *
-   * Held as-is while the studio list is still loading, so editing a piece filed
-   * under a studio category doesn't flash blank and lose the selection.
+   * Held as-is while the list is still loading, so editing a piece doesn't flash
+   * blank and lose its selection.
    */
   const category =
-    studioCategories === null || categoryOptions.includes(categoryDraft) ? categoryDraft : '';
+    categoryOptions === null || categoryOptions.includes(categoryDraft) ? categoryDraft : '';
 
-  const [collectionName, setCollectionName] = useState(product?.collectionName ?? '');
-  const [editSection, setEditSection] = useState(product?.editSection ?? '');
+  // Drives the status pill on the storefront's featured cards ("Best seller",
+  // "Premium", "New"). The field already existed on the model and the card
+  // renderer already read it — there was simply no way to set it from here.
+  const [offerText, setOfferText] = useState(product?.offerText ?? '');
   const [materials, setMaterials] = useState((product?.materials ?? []).join(', '));
-  const [lifeMode, setLifeMode] = useState(product?.lifeMode ?? '');
-  const [season, setSeason] = useState(product?.season ?? '');
+  /* Clipped on the way IN as well as while typing. A piece saved before the
+     limit existed can hold more than this; loaded as-is it would sit in the form
+     over the cap, be impossible to shorten by typing, and fail the backend
+     validator on save with no obvious cause. Clipping here means the counter
+     tells the truth from the first render and the save goes through. */
+  const [features, setFeatures] = useState(
+    (product?.features ?? []).map((f) => f.slice(0, MAX_FEATURE)).join('\n')
+  );
 
-  // Furniture Specific Fields
-  const [dimensions, setDimensions] = useState(product?.dimensions ?? '');
-  const [warranty, setWarranty] = useState(product?.warranty ?? '');
-  const [features, setFeatures] = useState((product?.features ?? []).join('\n'));
-  const [careInstructions, setCareInstructions] = useState(product?.careInstructions ?? '');
-  const [shippingReturns, setShippingReturns] = useState(product?.shippingReturns ?? '');
+  /**
+   * Features are one per line, so the cap is per LINE — a textarea's `maxLength`
+   * would cap the whole box instead, which would mean three short features
+   * exhausting the allowance of the fourth. Each line is clipped as it is typed,
+   * giving the same "you simply cannot type past it" behaviour `maxLength` gives
+   * the description, and the counter below says which line is at the limit.
+   */
+  const onFeaturesChange = (raw: string) =>
+    setFeatures(
+      raw
+        .split('\n')
+        .map((line) => line.slice(0, MAX_FEATURE))
+        .join('\n')
+    );
+
+  const featureLines = features.split('\n').map((f) => f.trim()).filter(Boolean);
+  const longestFeature = featureLines.reduce((max, f) => Math.max(max, f.length), 0);
   // Curated "Complete the Look" links, held as ids. This was a free-text field
   // asking the studio to paste comma-separated Mongo ObjectIds by hand — one
   // typo produced a silently broken rail on the storefront, and there was no way
@@ -144,21 +168,32 @@ export default function ProductForm({
   );
   const relatedAvailable = catalogue.filter((p) => !relatedIds.includes(p._id));
 
-  const [specs, setSpecs] = useState<ISpec[]>(() =>
-    (product?.specifications ?? []).map((s) => ({ label: s.label, value: s.value }))
+
+  /**
+   * The product's shots in the order they will be stored — saved URLs and
+   * not-yet-uploaded files in one list, because the primary image is simply
+   * `images[0]` everywhere it is read (PDP gallery, cart line, product cards).
+   * Keeping uploads in a separate array made that order unexpressible: a new
+   * shot always landed after every saved one and could never be made primary.
+   */
+  const [gallery, setGallery] = useState<GalleryItem[]>(() =>
+    (product?.images ?? []).map((url) => ({ url }))
   );
-  
-  const [imageUrls, setImageUrls] = useState(() =>
-    product ? product.images.map((url) => assetUrl(url)).join(', ') : ''
-  );
-  const [imageFiles, setImageFiles] = useState<File[]>([]);
-  
+
   const [variants, setVariants] = useState<IVariant[]>(() => {
     if (!product) {
       return [{ size: '', price: 0, oldPrice: 0, color: '', material: '', images: [], _files: [] }];
     }
 
-    const rows = product.variants.map((v) => ({
+    /* Each variant keeps its OWN images, exactly as stored.
+     *
+     * This used to pool every variant's images into the first and empty the
+     * rest on load. Uploading to the second colourway therefore worked once —
+     * the backend files them by index — and was destroyed the next time anyone
+     * opened the piece to edit it: the form re-hydrated with them all under the
+     * first variant, and saving wrote that back. Per-variant photography could
+     * never survive a second edit, which is the whole point of it. */
+    return product.variants.map((v) => ({
       size: v.size,
       price: v.price,
       oldPrice: v.oldPrice,
@@ -167,21 +202,6 @@ export default function ProductForm({
       images: [...(v.images || [])],
       _files: [] as File[],
     }));
-
-    const [first, ...rest] = rows;
-    if (first) {
-      const seen = new Set(first.images);
-      for (const row of rest) {
-        for (const url of row.images) {
-          if (seen.has(url)) continue;
-          seen.add(url);
-          first.images.push(url);
-        }
-        row.images = [];
-      }
-    }
-
-    return rows;
   });
 
   useEffect(() => {
@@ -212,37 +232,23 @@ export default function ProductForm({
     };
   }, []);
 
-  const urlList = imageUrls.split(',').map((url) => url.trim()).filter((url) => url);
-  const setUrlList = (next: string[]) => setImageUrls(next.join(', '));
-
-  const addImageFile = (file: File) => {
-    if (imageFiles.length + 1 > MAX_IMAGES) {
+  const addImage = (file: File) => {
+    if (gallery.length + 1 > MAX_IMAGES) {
       toast.error(`You can upload a maximum of ${MAX_IMAGES} images.`);
       return;
     }
-    setImageFiles((prev) => [...prev, file]);
+    setGallery((prev) => [...prev, { file }]);
   };
 
-  const replaceImageFile = (index: number, file: File) =>
-    setImageFiles((prev) => prev.map((f, i) => (i === index ? file : f)));
+  const replaceImage = (index: number, file: File) =>
+    setGallery((prev) => prev.map((item, i) => (i === index ? { file } : item)));
 
-  const removeImageFile = (index: number) =>
-    setImageFiles((prev) => prev.filter((_, i) => i !== index));
+  const removeImage = (index: number) =>
+    setGallery((prev) => prev.filter((_, i) => i !== index));
 
-  const replaceUrlWithFile = (index: number, file: File) => {
-    if (imageFiles.length + 1 > MAX_IMAGES) {
-      toast.error(`You can upload a maximum of ${MAX_IMAGES} images.`);
-      return;
-    }
-    setUrlList(urlList.filter((_, i) => i !== index));
-    setImageFiles((prev) => [...prev, file]);
-  };
-
-  const patchSpec = (index: number, changes: Partial<ISpec>) =>
-    setSpecs((prev) => prev.map((s, i) => (i === index ? { ...s, ...changes } : s)));
-  const addSpec = () => setSpecs((prev) => [...prev, { label: '', value: '' }]);
-  const removeSpec = (index: number) =>
-    setSpecs((prev) => prev.filter((_, i) => i !== index));
+  /** Promote to `images[0]`, keeping the rest in their existing order. */
+  const makePrimary = (index: number) =>
+    setGallery((prev) => [prev[index], ...prev.filter((_, i) => i !== index)]);
 
   const validate = (): { errors: FormErrors; message: string | null } => {
     const found: FormErrors = { variantFields: {} };
@@ -272,12 +278,12 @@ export default function ProductForm({
       }
       if (v.price <= 0) {
         vf.price = 'Must be greater than zero.';
-        fail(`Variant ${i + 1}: Offer Price must be greater than zero.`);
+        fail(`Variant ${i + 1}: Price must be greater than zero.`);
       }
       if (v.oldPrice && v.oldPrice > 0 && v.oldPrice < v.price) {
-        vf.oldPrice = 'Actual Price cannot be less than Offer Price';
+        vf.oldPrice = 'Cannot be less than the price.';
         fail(
-          `Variant ${i + 1}: Actual Price (₹${v.oldPrice}) cannot be less than Offer Price (₹${v.price}).`
+          `Variant ${i + 1}: Original Price (₹${v.oldPrice}) cannot be less than the Price (₹${v.price}).`
         );
       }
       if (Object.keys(vf).length > 0) found.variantFields![i] = vf;
@@ -298,6 +304,7 @@ export default function ProductForm({
 
     const formData = new FormData();
     formData.append('name', name);
+    formData.append('description', description.trim());
     formData.append('category', category);
     
     const variantsPayload = variants.map((v) => ({
@@ -314,35 +321,25 @@ export default function ProductForm({
       (v._files || []).forEach((file) => formData.append(`variantImages_${i}`, file));
     });
     
-    formData.append('dimensions', dimensions);
-    formData.append('warranty', warranty);
-    formData.append('careInstructions', careInstructions);
-    formData.append('shippingReturns', shippingReturns);
-    
-    formData.append('collectionName', collectionName);
-    formData.append('season', season);
-    formData.append('lifeMode', lifeMode);
-    formData.append('editSection', editSection);
+    /* Dimensions, warranty, the spec table, care and delivery copy, life mode,
+       Edit page, collection and season are no longer edited here, so they are no
+       longer sent. Absent fields are left alone by `findByIdAndUpdate`, so
+       whatever a piece already carries is preserved rather than blanked. */
+    formData.append('offerText', offerText.trim());
     formData.append('materials', JSON.stringify(toMaterialsPayload(materials)));
     
     const feats = features.split('\n').map(f => f.trim()).filter(f => f);
     formData.append('features', JSON.stringify(feats));
 
-    const specsPayload = specs
-      .map((s) => ({ label: s.label.trim(), value: s.value.trim() }))
-      .filter((s) => s.label && s.value);
-    formData.append('specifications', JSON.stringify(specsPayload));
-
     formData.append('relatedProducts', JSON.stringify(relatedIds));
 
-    const imagesArray = imageUrls.split(',').map((url) => url.trim()).filter((url) => url);
-    imagesArray.forEach((url) => formData.append('images', url));
-
-    if (imageFiles.length > 0) {
-      imageFiles.forEach((file) => {
-        formData.append('imageFiles', file);
-      });
-    }
+    // One ordered `images` array with a token where each upload belongs, then the
+    // files themselves in that same order — the backend stitches the two back
+    // together, so position (and therefore the primary shot) is preserved.
+    gallery.forEach((item) => formData.append('images', item.url ?? NEW_IMAGE_TOKEN));
+    gallery.forEach((item) => {
+      if (item.file) formData.append('imageFiles', item.file);
+    });
 
     try {
       const res = product
@@ -433,10 +430,14 @@ export default function ProductForm({
                 htmlFor={`${uid}-category`}
                 required
                 error={errors.category}
-                hint="A fixed storefront category, or one you created under Categories."
+                hint={
+                  categoryOptions?.length === 0
+                    ? 'No categories yet — create one under Categories first.'
+                    : 'The categories you created under Categories.'
+                }
               >
-                {/* Grouped so it's clear which names are fixed and which the
-                    studio owns. Both are selectable; neither is editable here. */}
+                {/* Exactly the saved categories. Nothing is offered here that
+                    the storefront cannot link to, because both read one table. */}
                 <Select
                   id={`${uid}-category`}
                   value={category}
@@ -444,67 +445,68 @@ export default function ProductForm({
                   onChange={(e) => setCategory(e.target.value)}
                 >
                   <option value="" disabled>
-                    — Select a category —
+                    {categoryOptions === null
+                      ? 'Loading categories…'
+                      : categoryOptions.length === 0
+                        ? 'No categories created yet'
+                        : '— Select a category —'}
                   </option>
-                  <optgroup label="Storefront categories">
-                    {SHOP_CATEGORIES.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </optgroup>
-                  {categoryOptions.length > SHOP_CATEGORIES.length && (
-                    <optgroup label="Your categories">
-                      {categoryOptions.slice(SHOP_CATEGORIES.length).map((c) => (
-                        <option key={c} value={c}>
-                          {c}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
+                  {(categoryOptions ?? []).map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
                 </Select>
               </Field>
 
               <Field
-                label="Dimensions"
-                htmlFor={`${uid}-dimensions`}
+                label="Description"
+                htmlFor={`${uid}-description`}
                 optional
-                hint="e.g. 90” W x 40” D x 32” H"
+                hint={`Shown under the discount badge. ${description.length}/${MAX_DESCRIPTION} characters.`}
               >
-                <Input
-                  id={`${uid}-dimensions`}
-                  type="text"
-                  value={dimensions}
-                  onChange={(e) => setDimensions(e.target.value)}
+                <Textarea
+                  id={`${uid}-description`}
+                  rows={3}
+                  maxLength={MAX_DESCRIPTION}
+                  placeholder="e.g. A sculptural statement piece designed to bring comfort, elegance and versatility into your space."
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
                 />
               </Field>
 
               <Field
-                label="Warranty"
-                htmlFor={`${uid}-warranty`}
+                label="Status Badge"
+                htmlFor={`${uid}-offer-text`}
                 optional
-                hint="e.g. 10-Year Limited Warranty"
+                hint="Shown as a red pill on the storefront card, e.g. Best seller, Premium, New."
               >
                 <Input
-                  id={`${uid}-warranty`}
+                  id={`${uid}-offer-text`}
                   type="text"
-                  value={warranty}
-                  onChange={(e) => setWarranty(e.target.value)}
+                  placeholder="e.g. Best seller"
+                  value={offerText}
+                  onChange={(e) => setOfferText(e.target.value)}
                 />
               </Field>
-              
+
               <Field
                 label="Features"
                 htmlFor={`${uid}-features`}
                 optional
-                hint="One feature per line."
+                hint={
+                  featureLines.length === 0
+                    ? `One per line, up to ${MAX_FEATURE} characters each. Shown on the product page.`
+                    : `${featureLines.length} feature${featureLines.length === 1 ? '' : 's'} · ` +
+                      `longest ${longestFeature}/${MAX_FEATURE} characters.`
+                }
               >
                 <Textarea
                   id={`${uid}-features`}
                   rows={4}
                   placeholder={'Premium top-grain leather\nKiln-dried hardwood frame'}
                   value={features}
-                  onChange={(e) => setFeatures(e.target.value)}
+                  onChange={(e) => onFeaturesChange(e.target.value)}
                 />
               </Field>
             </Section>
@@ -520,95 +522,6 @@ export default function ProductForm({
               />
             </Section>
 
-            <Section label="Specifications">
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="font-sans text-[11px] uppercase tracking-[0.15em] text-muted">
-                    Spec Table
-                  </span>
-                  <span className="font-sans text-[11px] text-faint tabular-nums">
-                    {specs.length} {specs.length === 1 ? 'row' : 'rows'}
-                  </span>
-                </div>
-
-                <div className="space-y-3">
-                  {specs.map((s, i) => (
-                    <div
-                      key={i}
-                      className="grid grid-cols-[1fr_1fr_auto] gap-3 items-end"
-                    >
-                      <Field label="Label" htmlFor={`${uid}-spec-label-${i}`}>
-                        <Input
-                          id={`${uid}-spec-label-${i}`}
-                          type="text"
-                          placeholder="e.g. Frame"
-                          value={s.label}
-                          onChange={(e) => patchSpec(i, { label: e.target.value })}
-                        />
-                      </Field>
-
-                      <Field label="Value" htmlFor={`${uid}-spec-value-${i}`}>
-                        <Input
-                          id={`${uid}-spec-value-${i}`}
-                          type="text"
-                          placeholder="e.g. Solid Wood"
-                          value={s.value}
-                          onChange={(e) => patchSpec(i, { value: e.target.value })}
-                        />
-                      </Field>
-
-                      <IconButton
-                        label={`Remove spec row ${i + 1}`}
-                        tone="danger"
-                        onClick={() => removeSpec(i)}
-                        className="mb-1"
-                      >
-                        <X size={14} />
-                      </IconButton>
-                    </div>
-                  ))}
-
-                  <button
-                    type="button"
-                    onClick={addSpec}
-                    className="w-full flex items-center justify-center gap-2 py-4 border border-dashed border-line bg-ivory text-faint hover:text-ink hover:border-ink/40 transition-colors duration-300 ease-editorial"
-                  >
-                    <Plus size={14} aria-hidden />
-                    <span className="eyebrow-tight">Add row</span>
-                  </button>
-                </div>
-              </div>
-            </Section>
-
-            <Section label="Care & Delivery">
-              <Field
-                label="Care Instructions"
-                htmlFor={`${uid}-care`}
-                optional
-              >
-                <Textarea
-                  id={`${uid}-care`}
-                  rows={3}
-                  placeholder="e.g. Wipe with a damp cloth. Avoid direct sunlight."
-                  value={careInstructions}
-                  onChange={(e) => setCareInstructions(e.target.value)}
-                />
-              </Field>
-
-              <Field
-                label="Shipping & Returns"
-                htmlFor={`${uid}-shipping`}
-                optional
-              >
-                <Textarea
-                  id={`${uid}-shipping`}
-                  rows={3}
-                  placeholder="Only if this piece departs from the site default."
-                  value={shippingReturns}
-                  onChange={(e) => setShippingReturns(e.target.value)}
-                />
-              </Field>
-            </Section>
 
             <Section label="Imagery">
               <div>
@@ -617,100 +530,49 @@ export default function ProductForm({
                     Uploads
                   </span>
                   <span className="font-sans text-[11px] text-faint tabular-nums">
-                    {imageFiles.length}/{MAX_IMAGES} selected
+                    {gallery.length}/{MAX_IMAGES}
                   </span>
                 </div>
 
                 <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-                  {urlList.map((url, index) => (
-                    <ImagePicker
-                      key={`url-${index}-${url}`}
-                      url={url}
-                      ratio="aspect-square"
-                      onSelect={(file) => replaceUrlWithFile(index, file)}
-                      onClear={() => setUrlList(urlList.filter((_, i) => i !== index))}
-                    />
+                  {gallery.map((item, index) => (
+                    <div key={galleryKey(item)} className="relative">
+                      <ImagePicker
+                        url={item.url}
+                        file={item.file}
+                        ratio="aspect-square"
+                        onSelect={(file) => replaceImage(index, file)}
+                        onClear={() => removeImage(index)}
+                      />
+                      {index === 0 ? (
+                        <span className="absolute bottom-0 inset-x-0 eyebrow-tight text-center bg-ink/80 text-ivory py-1">
+                          Primary
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => makePrimary(index)}
+                          className="absolute bottom-0 inset-x-0 eyebrow-tight text-center bg-ivory/90 text-muted border-t border-line py-1 hover:text-ink transition-colors duration-300 ease-editorial"
+                        >
+                          Make primary
+                        </button>
+                      )}
+                    </div>
                   ))}
 
-                  {imageFiles.map((file, index) => (
-                    <ImagePicker
-                      key={`file-${index}-${file.name}-${file.lastModified}`}
-                      file={file}
-                      ratio="aspect-square"
-                      onSelect={(next) => replaceImageFile(index, next)}
-                      onClear={() => removeImageFile(index)}
-                    />
-                  ))}
-
-                  {imageFiles.length < MAX_IMAGES && (
-                    <ImagePicker ratio="aspect-square" onSelect={addImageFile} />
+                  {gallery.length < MAX_IMAGES && (
+                    <ImagePicker ratio="aspect-square" onSelect={addImage} />
                   )}
                 </div>
+
+                <p className="font-sans text-[12px] text-faint mt-2">
+                  The primary shot leads the product page and represents the piece
+                  everywhere else on the storefront.
+                </p>
               </div>
             </Section>
 
-            <Section label="Placement">
-              <Field
-                label="Life Mode"
-                htmlFor={`${uid}-life-mode`}
-                optional
-                hint="Drives the Four Life Modes section."
-              >
-                <Select
-                  id={`${uid}-life-mode`}
-                  value={lifeMode}
-                  onChange={(e) => setLifeMode(e.target.value)}
-                >
-                  <option value="">— None —</option>
-                  {LIFE_MODES.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-
-              <Field
-                label="The Edit Page"
-                htmlFor={`${uid}-edit-section`}
-                optional
-                hint="Places this piece on a THE EDIT sub-page."
-              >
-                <Select
-                  id={`${uid}-edit-section`}
-                  value={editSection}
-                  onChange={(e) => setEditSection(e.target.value)}
-                >
-                  <option value="">— None —</option>
-                  {EDIT_SECTIONS.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Field label="Collection" htmlFor={`${uid}-collection`} optional>
-                  <Input
-                    id={`${uid}-collection`}
-                    type="text"
-                    placeholder="e.g. Autumn Classics"
-                    value={collectionName}
-                    onChange={(e) => setCollectionName(e.target.value)}
-                  />
-                </Field>
-                <Field label="Season" htmlFor={`${uid}-season`} optional>
-                  <Input
-                    id={`${uid}-season`}
-                    type="text"
-                    placeholder="e.g. 2026"
-                    value={season}
-                    onChange={(e) => setSeason(e.target.value)}
-                  />
-                </Field>
-              </div>
-
+            <Section label="Materials & Links">
               <Field
                 label="Materials"
                 htmlFor={`${uid}-materials`}

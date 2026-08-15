@@ -49,29 +49,41 @@ export interface IProduct {
 }
 
 /**
- * The five fixed categories a piece can be filed under — the same set the
- * storefront's Shop menu and category filters use. Mirrors `SHOP_CATEGORIES` in
- * the backend's Product model, which rejects anything else; this copy only drives
- * the product form's dropdown.
+ * There is deliberately NO category list here.
  *
- * Closed by design: the Product Details page selects from this list and cannot
- * add, rename or delete an entry. Category Management is a separate thing — it
- * holds the studio's editorial categories with their homepage photography, and
- * editing those must not re-shape what a product can be filed under.
+ * The categories a piece can be filed under are the ones created in Category
+ * Management, fetched with `useCategoryNames`. A hardcoded copy used to live at
+ * this spot and drive the product dropdown, which is how a piece could end up
+ * filed under a name the storefront had no link to. The database is the only
+ * source now, on both sides.
  */
-export const SHOP_CATEGORIES = [
-  'Luxury Furniture',
-  'Positioning',
-  'Wellness',
-  'Accessories',
-  'All Products',
-];
 
-/** Life modes drive the storefront's "Four Life Modes" section and ?mode= filtering. */
-export const LIFE_MODES = ['Ambition', 'Occasion', 'Casual/Out', 'At-Home Identity'];
+/*
+ * `LIFE_MODES` and `EDIT_SECTIONS` used to live here, driving the product form's
+ * Life Mode and The Edit Page pickers. Both fields were removed from the form,
+ * so the lists had nothing left to fill and are gone with them. The `lifeMode`
+ * and `editSection` fields themselves still exist on the Product model and are
+ * still read by the storefront — they simply have no editor any more.
+ */
 
-/** THE EDIT sub-pages a piece can be placed on (empty = not on any Edit page). */
-export const EDIT_SECTIONS = ['Within', 'Beyond', 'Furniture', 'Archive'];
+/**
+ * The house limit on the two free-text fields the product page renders, per
+ * field — and for features, per FEATURE rather than across the list.
+ *
+ * Mirrors MAX_DESCRIPTION / MAX_FEATURE in the backend's Product model, which is
+ * the real gate: these two only stop the typing, so the studio meets the limit
+ * as a full field rather than as a save that is refused.
+ */
+export const MAX_DESCRIPTION = 200;
+export const MAX_FEATURE = 200;
+
+/**
+ * Placeholder sent in the `images` array where a freshly uploaded file belongs.
+ * The backend swaps each one for its Cloudinary URL in order, so the gallery
+ * order set in the form — and with it `images[0]`, the primary shot — survives
+ * the round trip instead of new uploads always landing last.
+ */
+export const NEW_IMAGE_TOKEN = '__new__';
 
 /**
  * Standard sizes for furniture (if applicable). Non-standard sizes are still typeable.

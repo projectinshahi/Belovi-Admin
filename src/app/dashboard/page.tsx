@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { toast } from 'react-hot-toast';
 import {
   IndianRupee,
   ShoppingBag,
@@ -13,7 +12,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
-import { api, apiErrorMessage } from '@/lib/api';
+import { api, toastApiError } from '@/lib/api';
 import { formatINR, formatDate, shortId } from '@/lib/format';
 import {
   ButtonLink,
@@ -65,7 +64,7 @@ export default function DashboardPage() {
           setStats(res.data.data);
         }
       } catch (err) {
-        toast.error(apiErrorMessage(err, 'Could not load dashboard stats.'));
+        toastApiError(err, 'Could not load dashboard stats.');
       } finally {
         setLoading(false);
       }

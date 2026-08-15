@@ -36,6 +36,8 @@ interface OrderItem {
   };
   quantity: number;
   price: number;
+  /** The variant ordered. Set at checkout for any piece that has variants. */
+  size?: string;
 }
 
 interface Order {
@@ -59,6 +61,9 @@ interface Order {
   shippingFee: number;
   total: number;
   paymentMethod: string;
+  /** COD: taken online at checkout. The rest is collected on delivery. */
+  advanceAmount?: number;
+  balanceAmount?: number;
   paymentStatus: string;
   orderStatus: string;
   razorpayOrderId?: string;
@@ -72,10 +77,9 @@ interface Order {
  *
  * `pending` is deliberately absent: it is a *payment* status, never an order
  * status. The switch this file used to carry had a `pending` case, but the
- * select never offered it and the schema does not allow it. That matters more
- * than it looks — the admin update runs `findByIdAndUpdate` without
- * `runValidators`, so Mongoose would NOT reject an out-of-enum value; it would
- * persist silently. This list is the only thing keeping that honest.
+ * select never offered it and the schema does not allow it. The update endpoint
+ * now rejects anything outside this set too, so a stray value is a 400 rather
+ * than something that persists silently.
  */
 const ORDER_STATUSES = ['processing', 'shipped', 'delivered', 'cancelled'] as const;
 type OrderStatus = (typeof ORDER_STATUSES)[number];
@@ -391,6 +395,18 @@ export default function OrdersPage() {
                 <Detail label="Payment status">
                   <StatusBadge status={modalOrder.paymentStatus} />
                 </Detail>
+                {/* Only meaningful on a part-paid (COD) order — whoever hands
+                    the piece over needs to know what is still owed. */}
+                {!!modalOrder.balanceAmount && modalOrder.balanceAmount > 0 && (
+                  <>
+                    <Detail label="Paid online">
+                      {formatINR(modalOrder.advanceAmount || 0)}
+                    </Detail>
+                    <Detail label="Due on delivery">
+                      {formatINR(modalOrder.balanceAmount)}
+                    </Detail>
+                  </>
+                )}
                 {modalOrder.razorpayOrderId && (
                   <Detail label="Razorpay ID" className="sm:col-span-2">
                     <span className="break-all">{modalOrder.razorpayOrderId}</span>
@@ -443,7 +459,7 @@ export default function OrdersPage() {
                         {item.product?.name || 'Product unavailable'}
                       </p>
                       <p className="font-sans text-[12px] text-faint mt-0.5">
-                        &times;{item.quantity}
+                        {item.size ? `${item.size} · ` : ''}&times;{item.quantity}
                       </p>
                     </div>
                     <p className="font-sans text-[13px] text-ink whitespace-nowrap">

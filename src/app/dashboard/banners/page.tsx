@@ -29,7 +29,6 @@ import { api, apiErrorMessage } from '@/lib/api';
 
 interface IBanner {
   _id: string;
-  eyebrow?: string;
   title: string;
   description: string;
   ctaLabel?: string;
@@ -57,7 +56,6 @@ export default function BannersPage() {
   // Form State. `image`/`mobileImage` hold an existing path from the API;
   // `imageFile`/`mobileImageFile` hold a freshly-picked File. Exactly one of
   // each pair is live at a time — that distinction drives what goes on the wire.
-  const [eyebrow, setEyebrow] = useState('');
   const [title, setTitle] = useState('');
   const [ctaLabel, setCtaLabel] = useState('');
   const [ctaHref, setCtaHref] = useState('');
@@ -98,7 +96,6 @@ export default function BannersPage() {
 
   const handleAddClick = () => {
     setEditingId(null);
-    setEyebrow('');
     setTitle('');
     setCtaLabel('');
     setCtaHref('');
@@ -112,7 +109,6 @@ export default function BannersPage() {
 
   const handleEditClick = (banner: IBanner) => {
     setEditingId(banner._id);
-    setEyebrow(banner.eyebrow || '');
     setTitle(banner.title);
     setCtaLabel(banner.ctaLabel || '');
     setCtaHref(banner.ctaHref || '');
@@ -175,7 +171,6 @@ export default function BannersPage() {
     setSaving(true);
 
     const formData = new FormData();
-    formData.append('eyebrow', eyebrow);
     formData.append('title', title);
     formData.append('ctaLabel', ctaLabel);
     formData.append('ctaHref', ctaHref);
@@ -362,20 +357,6 @@ export default function BannersPage() {
             </div>
 
             <div className="flex-1 overflow-y-auto thin-scrollbar p-5 sm:p-6 space-y-5">
-              <Field
-                label="Section label"
-                htmlFor="banner-eyebrow"
-                hint="Small uppercase line above the heading."
-              >
-                <Input
-                  id="banner-eyebrow"
-                  type="text"
-                  value={eyebrow}
-                  onChange={(e) => setEyebrow(e.target.value)}
-                  placeholder="BELOVI · The Edit"
-                />
-              </Field>
-
               <Field
                 label="Hero heading"
                 htmlFor="banner-title"

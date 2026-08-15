@@ -2,114 +2,237 @@
 
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
+import { ArrowDown, ArrowUp, Plus, Trash2, X } from 'lucide-react';
 import { api, apiErrorMessage } from '@/lib/api';
-import { PageHeader, Card, CardHeader, Field, Input, Select, Textarea, Button, Spinner } from '@/components/ui';
-import { X } from 'lucide-react';
-import { SHOP_CATEGORIES } from '@/app/dashboard/products/_components/types';
-import { useCategoryNames } from '@/lib/useCategories';
+import {
+  Button,
+  Card,
+  CardHeader,
+  Checkbox,
+  EmptyState,
+  Field,
+  IconButton,
+  ImagePicker,
+  Input,
+  PageHeader,
+  Select,
+  Spinner,
+  Textarea,
+} from '@/components/ui';
+import { NEW_IMAGE_TOKEN } from '@/app/dashboard/products/_components/types';
+
+/**
+ * Featured Collection — the homepage rail.
+ *
+ * A CARD IS A GROUP OF PIECES. The workflow is: name the badge → add the pieces
+ * that belong to it → adjust the card → save. Selecting a card on the storefront
+ * shows its pieces together beneath the rail.
+ *
+ * The BADGE is free text and deliberately unrelated to any product's category —
+ * "Best seller" is a claim the studio makes, not a fact the catalogue holds.
+ *
+ * Title, subtitle and image are overrides. Left empty, each falls back to the
+ * FIRST piece's name, category and photograph, so a usable card costs a badge
+ * and one dropdown.
+ *
+ * ORDER IS POSITION, twice over: the cards' order in this list is the rail's
+ * order, and the pieces' order within a card is the order they are shown in.
+ * Both are moved with arrows and neither has a separate sort field, because
+ * position already is the fact.
+ */
+
+interface FeaturedCard {
+  /**
+   * The card's own id, blank until it has been saved once. Carried back to the
+   * API untouched: this card has a listing page at `/collections/<id>`, and
+   * dropping it here would mint a new id on every save and break every link the
+   * studio had shared.
+   */
+  _id: string;
+  /** Product ids, in display order. At least one. */
+  products: string[];
+  /** Overrides the first piece's photograph. `_file` supersedes it until saved. */
+  image: string;
+  badge: string;
+  title: string;
+  subtitle: string;
+  /** Picked in this session, not yet uploaded (client only). */
+  _file?: File | null;
+}
+
+interface Section {
+  heading: string;
+  description: string;
+  isVisible: boolean;
+}
 
 interface IProduct {
   _id: string;
   name: string;
-  images: string[];
   category?: string;
+  images?: string[];
+  variants?: { images?: string[] }[];
 }
 
-interface FeaturedCollection {
-  eyebrow: string;
-  heading: string;
-  description: string;
-  ctaLabel: string;
-  ctaHref: string;
-  isVisible: boolean;
-  products: IProduct[];
-  images: string[];
-}
+const BADGE_SUGGESTIONS = ['Best seller', 'Premium', 'New', 'Limited', 'Sale'];
+
+const blankCard = (): FeaturedCard => ({
+  _id: '',
+  products: [],
+  image: '',
+  badge: '',
+  title: '',
+  subtitle: '',
+  _file: null,
+});
+
+/** The API returns `products` populated; the form only needs their ids. */
+const toCard = (c: {
+  _id?: string;
+  products?: (string | { _id?: string } | null)[];
+  image?: string;
+  badge?: string;
+  title?: string;
+  subtitle?: string;
+}): FeaturedCard => ({
+  _id: c._id ?? '',
+  products: (c.products ?? [])
+    .map((p) => (typeof p === 'string' ? p : (p?._id ?? '')))
+    .filter(Boolean),
+  image: c.image ?? '',
+  badge: c.badge ?? '',
+  title: c.title ?? '',
+  subtitle: c.subtitle ?? '',
+  _file: null,
+});
+
+/** Move an item within an array. Returns the same array when it cannot move. */
+const shift = <T,>(list: T[], from: number, dir: -1 | 1): T[] => {
+  const to = from + dir;
+  if (to < 0 || to >= list.length) return list;
+  const next = [...list];
+  [next[from], next[to]] = [next[to], next[from]];
+  return next;
+};
+
+/** First photograph a piece can offer — its own, else its first variant's. */
+const productImage = (p?: IProduct) => p?.images?.[0] || p?.variants?.[0]?.images?.[0] || '';
 
 export default function FeaturedCollectionPage() {
-  const [data, setData] = useState<FeaturedCollection | null>(null);
-  const [allProducts, setAllProducts] = useState<IProduct[]>([]);
+  const [section, setSection] = useState<Section | null>(null);
+  const [cards, setCards] = useState<FeaturedCard[]>([]);
+  const [products, setProducts] = useState<IProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  // Narrows the "Add a Piece" list to one category. Curation stays manual — this
-  // only makes a long catalogue navigable. Offers the same union a piece can be
-  // filed under (fixed + studio), so no piece is unreachable. Empty = every piece.
-  const [categoryFilter, setCategoryFilter] = useState('');
-  const studioCategories = useCategoryNames();
-  const categoryOptions = [
-    ...SHOP_CATEGORIES,
-    ...(studioCategories ?? []).filter((c) => !SHOP_CATEGORIES.includes(c)),
-  ];
 
   useEffect(() => {
     Promise.all([
-      api.get('/featured-collection').then(res => res.data?.data),
-      api.get('/products').then(res => res.data?.data)
+      api.get('/featured-collection').then((r) => r.data?.data),
+      api.get('/products').then((r) => r.data?.data),
     ])
-      .then(([collectionData, productsData]) => {
-        setData(collectionData || {
-          eyebrow: '',
-          heading: '',
-          description: '',
-          ctaLabel: '',
-          ctaHref: '',
-          isVisible: true,
-          products: [],
-          images: []
+      .then(([collection, prods]) => {
+        setSection({
+          heading: collection?.heading ?? '',
+          description: collection?.description ?? '',
+          isVisible: collection?.isVisible ?? true,
         });
-        setAllProducts(productsData || []);
+        setCards((collection?.cards ?? []).map(toCard));
+        setProducts(Array.isArray(prods) ? prods : []);
       })
       .catch((e) => toast.error(apiErrorMessage(e, 'Could not load Featured Collection.')))
       .finally(() => setLoading(false));
   }, []);
 
-  const set = (k: keyof FeaturedCollection, v: any) => setData((p) => (p ? { ...p, [k]: v } : p));
+  const productById = (id: string) => products.find((p) => p._id === id);
 
-  const addProduct = (productId: string) => {
-    if (!data) return;
-    const prod = allProducts.find(p => p._id === productId);
-    if (!prod || data.products.some(p => p._id === productId)) return;
-    setData({ ...data, products: [...data.products, prod] });
+  const patch = (index: number, changes: Partial<FeaturedCard>) =>
+    setCards((prev) => prev.map((c, i) => (i === index ? { ...c, ...changes } : c)));
+
+  /**
+   * Adding the FIRST piece fills the card in: its photograph, its name as the
+   * title and its category as the subtitle — the shape the rail already had.
+   * Each is only a starting point and stays editable, and nothing already typed
+   * or uploaded is overwritten. Later pieces change none of it, since the card's
+   * identity is the group rather than any one member.
+   *
+   * The badge is untouched throughout, on purpose: it is the studio's own claim
+   * about the group, not a fact carried over from a piece.
+   */
+  const addProduct = (index: number, id: string) => {
+    const card = cards[index];
+    if (!id || card.products.includes(id)) return;
+    const isFirst = card.products.length === 0;
+    const p = productById(id);
+    patch(index, {
+      products: [...card.products, id],
+      ...(isFirst
+        ? {
+            image: !card.image && !card._file ? productImage(p) : card.image,
+            title: card.title || p?.name || '',
+            subtitle: card.subtitle || p?.category || '',
+          }
+        : {}),
+    });
   };
 
-  const removeProduct = (productId: string) => {
-    if (!data) return;
-    setData({ ...data, products: data.products.filter(p => p._id !== productId) });
-  };
+  const removeProduct = (index: number, id: string) =>
+    patch(index, { products: cards[index].products.filter((p) => p !== id) });
 
-  const moveProduct = (index: number, direction: -1 | 1) => {
-    if (!data) return;
-    const newProducts = [...data.products];
-    if (index + direction < 0 || index + direction >= newProducts.length) return;
-    const temp = newProducts[index];
-    newProducts[index] = newProducts[index + direction];
-    newProducts[index + direction] = temp;
-    setData({ ...data, products: newProducts });
-  };
+  const moveProduct = (index: number, at: number, dir: -1 | 1) =>
+    patch(index, { products: shift(cards[index].products, at, dir) });
+
+  const addCard = () => setCards((prev) => [...prev, blankCard()]);
+
+  const removeCard = (index: number) => setCards((prev) => prev.filter((_, i) => i !== index));
+
+  const move = (index: number, dir: -1 | 1) => setCards((prev) => shift(prev, index, dir));
 
   const save = async () => {
-    if (!data) return;
+    if (!section) return;
+
+    const blank = cards.findIndex((c) => c.products.length === 0);
+    if (blank !== -1) {
+      toast.error(`Card ${blank + 1} needs at least one product.`);
+      return;
+    }
+
     setSaving(true);
     try {
       const formData = new FormData();
-      formData.append('eyebrow', data.eyebrow);
-      formData.append('heading', data.heading);
-      formData.append('description', data.description);
-      formData.append('ctaLabel', data.ctaLabel);
-      formData.append('ctaHref', data.ctaHref);
-      formData.append('isVisible', String(data.isVisible));
-      
-      const productIds = data.products.map(p => p._id);
-      formData.append('products', JSON.stringify(productIds));
-      
-      if (data.images && data.images.length > 0) {
-        formData.append('images', data.images[0]); // sending existing image url
-      }
+      formData.append('heading', section.heading);
+      formData.append('description', section.description);
+      formData.append('isVisible', String(section.isVisible));
+
+      /* A token stands in for each freshly picked file; the files follow in the
+         same order and the backend swaps them back in position — so reordering
+         and uploading in one save cannot pair a card with another's photograph. */
+      formData.append(
+        'cards',
+        JSON.stringify(
+          cards.map((c) => ({
+            // Omitted entirely when blank, so the API mints one for a new card
+            // instead of choking on an empty string where an id belongs.
+            ...(c._id ? { _id: c._id } : {}),
+            products: c.products,
+            image: c._file ? NEW_IMAGE_TOKEN : c.image,
+            badge: c.badge,
+            title: c.title,
+            subtitle: c.subtitle,
+          }))
+        )
+      );
+      cards.forEach((c) => {
+        if (c._file) formData.append('cardImages', c._file);
+      });
 
       const res = await api.put('/featured-collection', formData);
       if (res.data?.success) {
-        setData(res.data.data);
+        // Re-seed from what was stored, so uploaded files become real URLs and
+        // the pickers stop holding File objects that are already saved.
+        setCards((res.data.data?.cards ?? []).map(toCard));
         toast.success('Featured Collection updated');
+      } else {
+        toast.error(res.data?.message || 'Save failed.');
       }
     } catch (e) {
       toast.error(apiErrorMessage(e, 'Save failed.'));
@@ -126,152 +249,288 @@ export default function FeaturedCollectionPage() {
     );
   }
 
-  if (!data) return null;
-
-  // Pieces not already featured, narrowed to the chosen category.
-  const available = allProducts.filter(
-    (p) =>
-      !data.products.some((dp) => dp._id === p._id) &&
-      (!categoryFilter || p.category === categoryFilter)
-  );
+  if (!section) return null;
 
   return (
     <>
       <PageHeader
+        eyebrow="Homepage"
         title="Featured Collection"
-        description="The product showcase section on the homepage."
+        description="The rail of cards on the homepage. Each card is a named group of pieces; selecting it on the storefront shows them together."
         action={
           <Button onClick={save} disabled={saving} variant="solid" size="sm">
-            {saving ? 'Saving...' : 'Save Changes'}
+            {saving ? 'Saving…' : 'Save Changes'}
           </Button>
         }
       />
 
-      <div className="max-w-[720px] space-y-6">
-        <Card>
-          <CardHeader eyebrow="Visibility" title="Display settings" />
-          <div className="p-5 sm:p-6 space-y-4">
-            <label className="flex items-center gap-3">
-              <input 
-                type="checkbox" 
-                checked={data.isVisible} 
-                onChange={(e) => set('isVisible', e.target.checked)} 
-                className="w-4 h-4"
+      <div className="max-w-[900px] space-y-6">
+        <Card className="p-5 sm:p-6">
+          <CardHeader eyebrow="Section" title="Heading & visibility" />
+          <div className="mt-5 space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label="Heading" htmlFor="fc-heading">
+                <Input
+                  id="fc-heading"
+                  value={section.heading}
+                  onChange={(e) => setSection({ ...section, heading: e.target.value })}
+                  placeholder="e.g. Featured collection"
+                />
+              </Field>
+              <Field label="Description" htmlFor="fc-description">
+                <Textarea
+                  id="fc-description"
+                  rows={2}
+                  value={section.description}
+                  onChange={(e) => setSection({ ...section, description: e.target.value })}
+                  placeholder="A thoughtfully curated collection…"
+                />
+              </Field>
+            </div>
+            <div className="border-t border-line pt-4">
+              <Checkbox
+                label="Show this section on the storefront"
+                description="Unticked — or with no cards — the band does not render at all."
+                checked={section.isVisible}
+                onChange={(checked) => setSection({ ...section, isVisible: checked })}
               />
-              <span className="text-sm font-medium">Show this section on the storefront</span>
-            </label>
-          </div>
-        </Card>
-
-        <Card>
-          <CardHeader eyebrow="Copy" title="Headline & Text" />
-          <div className="p-5 sm:p-6 space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <Field label="Eyebrow" htmlFor="eyebrow">
-                <Input id="eyebrow" value={data.eyebrow} onChange={(e) => set('eyebrow', e.target.value)} placeholder="e.g. Now · The Onam Collection" />
-              </Field>
-              <Field label="Heading" htmlFor="heading">
-                <Input id="heading" value={data.heading} onChange={(e) => set('heading', e.target.value)} placeholder="e.g. Featured Collection" />
-              </Field>
-            </div>
-            <Field label="Description" htmlFor="description">
-              <Textarea id="description" value={data.description} onChange={(e) => set('description', e.target.value)} rows={3} placeholder="Optional subtitle text..." />
-            </Field>
-          </div>
-        </Card>
-
-        <Card>
-          <CardHeader eyebrow="Call to Action" title="Button Settings" />
-          <div className="p-5 sm:p-6 space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <Field label="Button Label" htmlFor="ctaLabel">
-                <Input id="ctaLabel" value={data.ctaLabel} onChange={(e) => set('ctaLabel', e.target.value)} placeholder="e.g. View All Pieces" />
-              </Field>
-              <Field label="Button Link" htmlFor="ctaHref">
-                <Input id="ctaHref" value={data.ctaHref} onChange={(e) => set('ctaHref', e.target.value)} placeholder="e.g. /products" />
-              </Field>
             </div>
           </div>
         </Card>
 
-        <Card>
-          <CardHeader eyebrow="Products" title="Curated Edit" />
-          <div className="p-5 sm:p-6 space-y-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Field label="Filter by Category" htmlFor="product-filter">
-                <Select
-                  id="product-filter"
-                  value={categoryFilter}
-                  onChange={(e) => setCategoryFilter(e.target.value)}
-                >
-                  <option value="">All categories</option>
-                  {categoryOptions.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </Select>
-              </Field>
-
-              <Field
-                label="Add a Piece"
-                htmlFor="product-add"
-                hint={`${available.length} ${available.length === 1 ? 'piece' : 'pieces'} to choose from.`}
+        <Card className="p-5 sm:p-6">
+          <CardHeader
+            eyebrow="Cards"
+            title="Featured cards"
+            description="Add the pieces that belong together, name the badge, adjust the card. Arrows reorder — both the cards and the pieces inside them."
+            action={
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={addCard}
+                disabled={products.length === 0}
               >
-                {/* Controlled at "" so the select snaps back to the placeholder
-                    after each pick — this is an action, not a stored value. */}
-                <Select
-                  id="product-add"
-                  value=""
-                  onChange={(e) => e.target.value && addProduct(e.target.value)}
-                >
-                  <option value="" disabled>Select a piece to add...</option>
-                  {available.map((p) => (
-                    <option key={p._id} value={p._id}>
-                      {categoryFilter ? p.name : `${p.name} — ${p.category || '—'}`}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-            </div>
+                <Plus size={13} aria-hidden />
+                Add Card
+              </Button>
+            }
+          />
 
-            <div className="space-y-2">
-              {data.products.length === 0 ? (
-                <p className="text-sm text-muted">No products selected. Fallbacks will be shown on the storefront.</p>
-              ) : (
-                data.products.map((p, i) => (
-                  <div key={p._id} className="flex items-center gap-3 p-3 border border-line bg-cream/50">
-                    <div className="flex flex-col gap-1 shrink-0">
-                      <button onClick={() => moveProduct(i, -1)} disabled={i === 0} className="disabled:opacity-30 text-ink hover:text-forest transition-colors">
-                        ▲
-                      </button>
-                      <button onClick={() => moveProduct(i, 1)} disabled={i === data.products.length - 1} className="disabled:opacity-30 text-ink hover:text-forest transition-colors">
-                        ▼
-                      </button>
-                    </div>
-                    <div className="w-12 h-16 shrink-0 bg-sand relative overflow-hidden">
-                      {p.images?.[0] && <img src={p.images[0]} alt="" className="absolute inset-0 w-full h-full object-cover" />}
-                    </div>
-                    <div className="flex-1 min-w-0 font-sans text-[14px]">
-                      <span className="block truncate">{p.name}</span>
-                      <span className="block text-[12px] text-faint truncate">
-                        {p.category || '—'}
+          {products.length === 0 && (
+            <p className="mt-4 border border-line bg-cream/60 p-3 font-sans text-[13px] text-muted">
+              No pieces in the catalogue yet. Add one under <strong>Products</strong> first —
+              a card is built from a piece.
+            </p>
+          )}
+
+          <div className="mt-5 space-y-5">
+            {cards.length === 0 ? (
+              <EmptyState
+                title="No cards yet"
+                message="Add a card to feature a piece on the homepage."
+                action={
+                  <Button
+                    variant="solid"
+                    size="sm"
+                    onClick={addCard}
+                    disabled={products.length === 0}
+                  >
+                    Add Card
+                  </Button>
+                }
+              />
+            ) : (
+              cards.map((card, i) => {
+                const available = products.filter((p) => !card.products.includes(p._id));
+                return (
+                <div
+                  key={i}
+                  className="grid grid-cols-1 gap-5 border border-line p-4 sm:grid-cols-[168px_1fr]"
+                >
+                  {/* Shown at the card's real 4:5, so what is cropped here is
+                      what is cropped on the storefront. */}
+                  <ImagePicker
+                    label={`Card ${i + 1} image`}
+                    ratio="aspect-[4/5]"
+                    file={card._file}
+                    url={card.image || null}
+                    onSelect={(file) => patch(i, { _file: file })}
+                    onClear={() => patch(i, { _file: null, image: '' })}
+                    hint="Defaults to the product's own"
+                  />
+
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="eyebrow text-bronze-deep">
+                        Position {i + 1}
+                        {/* Only once saved — an unsaved card has no id and so no
+                            page yet. Shown so the studio can see, and open, the
+                            listing this card leads to. */}
+                        {card._id && (
+                          <span className="ml-2 font-sans text-[11px] normal-case tracking-normal text-faint">
+                            /collections/{card._id}
+                          </span>
+                        )}
                       </span>
+                      <div className="flex items-center gap-1.5">
+                        <IconButton
+                          label={`Move card ${i + 1} earlier`}
+                          onClick={() => move(i, -1)}
+                          disabled={i === 0}
+                        >
+                          <ArrowUp size={13} aria-hidden />
+                        </IconButton>
+                        <IconButton
+                          label={`Move card ${i + 1} later`}
+                          onClick={() => move(i, 1)}
+                          disabled={i === cards.length - 1}
+                        >
+                          <ArrowDown size={13} aria-hidden />
+                        </IconButton>
+                        <IconButton
+                          label={`Remove card ${i + 1}`}
+                          tone="danger"
+                          onClick={() => removeCard(i)}
+                        >
+                          <Trash2 size={13} aria-hidden />
+                        </IconButton>
+                      </div>
                     </div>
-                    <button onClick={() => removeProduct(p._id)} className="w-8 h-8 flex items-center justify-center text-muted hover:text-danger shrink-0">
-                      <X size={16} />
-                    </button>
+
+                    {/* 1 — the group. Controlled at "" so the select returns to
+                        its placeholder after each pick: this is an action, not a
+                        stored value. Pieces already in this card are dropped from
+                        the options, so it cannot add a duplicate. */}
+                    <Field
+                      label="Products"
+                      htmlFor={`fc-products-${i}`}
+                      required
+                      hint={
+                        card.products.length
+                          ? `${card.products.length} in this collection. The first supplies the card's fallbacks.`
+                          : 'The pieces shown when this card is selected.'
+                      }
+                    >
+                      <Select
+                        id={`fc-products-${i}`}
+                        value=""
+                        disabled={available.length === 0}
+                        onChange={(e) => addProduct(i, e.target.value)}
+                      >
+                        <option value="" disabled>
+                          {available.length === 0 ? 'Every piece is already added' : 'Add a piece…'}
+                        </option>
+                        {available.map((p) => (
+                          <option key={p._id} value={p._id}>
+                            {p.name}
+                            {p.category ? ` — ${p.category}` : ''}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+
+                    {card.products.length > 0 && (
+                      <ul className="space-y-2">
+                        {card.products.map((id, at) => {
+                          const p = productById(id);
+                          return (
+                            <li
+                              key={id}
+                              className="flex items-center gap-3 border border-line bg-cream/50 p-2.5"
+                            >
+                              <span className="eyebrow text-faint w-5 shrink-0">{at + 1}</span>
+                              <span className="min-w-0 flex-1 truncate text-sm text-ink">
+                                {/* A piece deleted from the catalogue still lists
+                                    by id, so it can be seen and removed rather
+                                    than blocking every save invisibly. */}
+                                {p ? p.name : '(piece no longer exists)'}
+                                {p?.category ? (
+                                  <span className="text-muted"> — {p.category}</span>
+                                ) : null}
+                              </span>
+                              <div className="flex shrink-0 items-center gap-1.5">
+                                <IconButton
+                                  label={`Move ${p?.name ?? 'piece'} earlier`}
+                                  onClick={() => moveProduct(i, at, -1)}
+                                  disabled={at === 0}
+                                >
+                                  <ArrowUp size={12} aria-hidden />
+                                </IconButton>
+                                <IconButton
+                                  label={`Move ${p?.name ?? 'piece'} later`}
+                                  onClick={() => moveProduct(i, at, 1)}
+                                  disabled={at === card.products.length - 1}
+                                >
+                                  <ArrowDown size={12} aria-hidden />
+                                </IconButton>
+                                <IconButton
+                                  label={`Remove ${p?.name ?? 'piece'} from this card`}
+                                  tone="danger"
+                                  onClick={() => removeProduct(i, id)}
+                                >
+                                  <X size={12} aria-hidden />
+                                </IconButton>
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+
+                    {/* 2 — the badge. Free text, and never taken from the
+                        piece's category: it is a claim, not a fact. */}
+                    <Field
+                      label="Badge"
+                      htmlFor={`fc-badge-${i}`}
+                      optional
+                      hint="The red pill, top right. Independent of the product's category."
+                    >
+                      <Input
+                        id={`fc-badge-${i}`}
+                        list={`fc-badge-options-${i}`}
+                        value={card.badge}
+                        onChange={(e) => patch(i, { badge: e.target.value })}
+                        placeholder="e.g. Best seller"
+                        autoComplete="off"
+                      />
+                      <datalist id={`fc-badge-options-${i}`}>
+                        {BADGE_SUGGESTIONS.map((b) => (
+                          <option key={b} value={b} />
+                        ))}
+                      </datalist>
+                    </Field>
+
+                    {/* 3 — the rest of the card. Prefilled from the piece. */}
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <Field label="Title" htmlFor={`fc-title-${i}`} hint="Dark line on the card.">
+                        <Input
+                          id={`fc-title-${i}`}
+                          value={card.title}
+                          onChange={(e) => patch(i, { title: e.target.value })}
+                          placeholder="e.g. The original Tantra"
+                        />
+                      </Field>
+                      <Field
+                        label="Subtitle"
+                        htmlFor={`fc-sub-${i}`}
+                        optional
+                        hint="Red line beneath it."
+                      >
+                        <Input
+                          id={`fc-sub-${i}`}
+                          value={card.subtitle}
+                          onChange={(e) => patch(i, { subtitle: e.target.value })}
+                          placeholder="e.g. Signature Chair"
+                        />
+                      </Field>
+                    </div>
                   </div>
-                ))
-              )}
-            </div>
+                </div>
+                );
+              })
+            )}
           </div>
         </Card>
-
-      </div>
-
-      <div className="sticky bottom-0 inset-x-0 mt-12 p-4 bg-cream/90 backdrop-blur-md border-t border-line-dark flex justify-end z-20 shadow-[0_-4px_24px_rgba(0,0,0,0.05)]">
-        <Button onClick={save} disabled={saving} variant="solid">
-          {saving ? 'Saving...' : 'Save Changes'}
-        </Button>
       </div>
     </>
   );

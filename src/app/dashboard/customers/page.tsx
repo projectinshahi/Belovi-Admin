@@ -14,6 +14,7 @@ import {
   Pagination,
   Reveal,
   SearchInput,
+  Select,
   SkeletonTable,
   Spinner,
   StatusBadge,
@@ -53,6 +54,7 @@ export default function CustomersPage() {
   // Client-side filter + pager. The list endpoint returns every customer, as it
   // always has — no API contract change here.
   const [query, setQuery] = useState('');
+  const [accessFilter, setAccessFilter] = useState<'all' | 'active' | 'blocked'>('all');
   const [page, setPage] = useState(1);
 
   // Which row's toggle-status request is currently in flight.
@@ -128,13 +130,19 @@ export default function CustomersPage() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return customers;
-    return customers.filter(
-      (customer) =>
+    return customers.filter((customer) => {
+      if (accessFilter !== 'all' && customer.isActive !== (accessFilter === 'active')) {
+        return false;
+      }
+      if (!q) return true;
+      return (
         customer.name?.toLowerCase().includes(q) ||
         customer.email?.toLowerCase().includes(q)
-    );
-  }, [customers, query]);
+      );
+    });
+  }, [customers, query, accessFilter]);
+
+  const isFiltering = query.trim() !== '' || accessFilter !== 'all';
 
   // Clamp rather than reset: if a block/unblock or a filter shrinks the list
   // past the current page, fall back to the last page that still has rows.
@@ -161,7 +169,7 @@ export default function CustomersPage() {
         {/* padded={false} + explicit padding: the Table primitive bleeds to the
             card edge with its own -mx-5 sm:-mx-6. */}
         <Card padded={false} className="p-5 sm:p-6">
-          <div className="flex items-center justify-between gap-4 mb-5">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-5">
             <SearchInput
               value={query}
               onChange={(value) => {
@@ -169,19 +177,33 @@ export default function CustomersPage() {
                 setPage(1);
               }}
               placeholder="Search by name or email…"
-              className="w-full max-w-xs"
+              className="sm:max-w-xs w-full"
             />
+            <div className="sm:w-[190px] w-full">
+              <Select
+                value={accessFilter}
+                onChange={(e) => {
+                  setAccessFilter(e.target.value as 'all' | 'active' | 'blocked');
+                  setPage(1);
+                }}
+                aria-label="Filter by store access"
+              >
+                <option value="all">All customers</option>
+                <option value="active">Active</option>
+                <option value="blocked">Blocked</option>
+              </Select>
+            </div>
           </div>
 
           {loading ? (
             <SkeletonTable rows={6} cols={6} />
           ) : filtered.length === 0 ? (
             <EmptyState
-              eyebrow={query ? 'No matches' : 'Nothing here yet'}
-              title={query ? 'No customers found' : 'No customers yet'}
+              eyebrow={isFiltering ? 'No matches' : 'Nothing here yet'}
+              title={isFiltering ? 'No customers found' : 'No customers yet'}
               message={
-                query
-                  ? 'No name or email matches that search. Try a shorter term.'
+                isFiltering
+                  ? 'Nothing matches that search and filter. Try widening either.'
                   : 'Customers will appear here once they register.'
               }
               icon={<Users size={20} strokeWidth={1.5} aria-hidden />}

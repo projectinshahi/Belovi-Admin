@@ -47,7 +47,9 @@ export default function StudioNotesPage() {
       <PageHeader
         eyebrow="Storefront"
         title="Studio Notes"
-        description="The Studio Notes block on the homepage (the “Story” section) — label, heading, description and its button."
+        /* The block this edits is not mounted on the redesigned homepage. The
+           data still saves and is still here. */
+        description="Not currently shown on the storefront. Saved and kept — the Studio Notes block is not part of the redesigned home page."
         action={<Button variant="solid" size="sm" onClick={save} loading={saving}>Save</Button>}
       />
 

@@ -206,6 +206,24 @@ export default function VariantEditor({
                 />
               </Field>
 
+              {/* The struck-through figure on the storefront. Optional: leave it
+                  empty and the piece simply shows one price. */}
+              <Field
+                label="Original Price"
+                htmlFor={`${uid}-old-price-${i}`}
+                error={fieldErrors?.oldPrice}
+                hint="Shown struck through beside the price."
+              >
+                <Input
+                  id={`${uid}-old-price-${i}`}
+                  type="number"
+                  placeholder="₹ Before discount"
+                  value={v.oldPrice ? v.oldPrice : ''}
+                  error={!!fieldErrors?.oldPrice}
+                  onChange={(e) => patch(i, { oldPrice: Number(e.target.value) })}
+                />
+              </Field>
+
               <Field
                 label="Color"
                 htmlFor={`${uid}-color-${i}`}
