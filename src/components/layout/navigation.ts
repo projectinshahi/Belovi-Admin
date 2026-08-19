@@ -16,8 +16,7 @@ export type NavKey =
   | 'featured-collection'
   | 'about'
   | 'brochures'
-  | 'customers'
-  | 'settings';
+  | 'customers';
 
 export interface NavItem {
   key: NavKey;
@@ -95,13 +94,6 @@ export const NAV_ITEMS: NavItem[] = [
     href: '/dashboard/customers',
     title: 'Customers',
     eyebrow: 'The Register',
-  },
-  {
-    key: 'settings',
-    name: 'Settings',
-    href: '/dashboard/settings',
-    title: 'Settings',
-    eyebrow: 'The Studio',
   },
 ];
 

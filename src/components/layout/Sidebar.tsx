@@ -17,7 +17,6 @@ import {
   Mail,
   LogOut,
   X,
-  Settings,
 } from 'lucide-react';
 import { clearAdminSession } from '@/lib/adminSession';
 import Logo from '@/components/ui/Logo';
@@ -37,7 +36,6 @@ const ICONS = {
   brochures: FileText,
   customers: Users,
   newsletter: Mail,
-  settings: Settings,
 } as const;
 
 interface SidebarProps {

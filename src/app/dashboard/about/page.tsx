@@ -17,7 +17,7 @@ import {
 import { api, assetUrl, toastApiError } from '@/lib/api';
 
 /**
- * The About Us page editor — the banner, the four blocks beneath it, and SEO.
+ * The About Us page editor — the banner and the four blocks beneath it.
  *
  * The page's words used to be fixed in code and this form offered photographs
  * only. They are the studio's now: the banner's heading and subheading, and a
@@ -39,8 +39,6 @@ interface AboutData {
   storyImage?: string;
   visionImage?: string;
   showroomImages?: string[];
-  metaTitle?: string;
-  metaDescription?: string;
   /** Copy the storefront no longer reads. Carried so a save preserves it. */
   [key: string]: unknown;
 }
@@ -156,8 +154,10 @@ export default function AboutAdminPage() {
       for (const field of [...EDITED_TEXT, ...PRESERVED_TEXT]) {
         form.append(field, (data[field] as string) ?? '');
       }
-      form.append('metaTitle', (data.metaTitle as string) ?? '');
-      form.append('metaDescription', (data.metaDescription as string) ?? '');
+      /* `metaTitle` / `metaDescription` are deliberately NOT sent. The SEO block
+         that edited them is gone from this screen, and the About controller
+         assigns only the fields a request actually carries — so whatever is
+         already stored is left alone rather than blanked on the next save. */
       form.append('visionPoints', JSON.stringify(data.visionPoints ?? []));
 
       // A URL is only sent when no new file replaces it — the server prefers the
@@ -362,28 +362,6 @@ export default function AboutAdminPage() {
           </Card>
         </Reveal>
 
-        <Reveal delay={0.24}>
-          <Card className="p-5 sm:p-6">
-            <CardHeader eyebrow="Search" title="SEO" />
-            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Field label="Meta Title" htmlFor="meta-title" optional>
-                <Input
-                  id="meta-title"
-                  value={(data.metaTitle as string) ?? ''}
-                  onChange={(e) => set('metaTitle', e.target.value)}
-                  placeholder="About Us — BELOVI"
-                />
-              </Field>
-              <Field label="Meta Description" htmlFor="meta-description" optional>
-                <Input
-                  id="meta-description"
-                  value={(data.metaDescription as string) ?? ''}
-                  onChange={(e) => set('metaDescription', e.target.value)}
-                />
-              </Field>
-            </div>
-          </Card>
-        </Reveal>
       </div>
 
       <div className="sticky bottom-0 inset-x-0 p-4 bg-ivory/90 backdrop-blur-md border-t border-line flex justify-end z-20">
