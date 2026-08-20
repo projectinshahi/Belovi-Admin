@@ -10,7 +10,6 @@ import {
   Button,
   Field,
   IconButton,
-  ImagePicker,
   Input,
   Select,
   Textarea,
@@ -20,8 +19,6 @@ import VariantEditor from './VariantEditor';
 import {
   MAX_DESCRIPTION,
   MAX_FEATURE,
-  MAX_IMAGES,
-  NEW_IMAGE_TOKEN,
   type IProduct,
   type IVariant,
   type VariantFieldErrors,
@@ -33,13 +30,6 @@ interface FormErrors {
   variants?: string;
   variantFields?: Record<number, VariantFieldErrors>;
 }
-
-/** One shot in the product gallery: either already stored, or picked just now. */
-type GalleryItem = { url: string; file?: undefined } | { url?: undefined; file: File };
-
-/** Identity that survives reordering — an index key would swap previews around. */
-const galleryKey = (item: GalleryItem) =>
-  item.url ?? `${item.file.name}-${item.file.size}-${item.file.lastModified}`;
 
 const toMaterialsPayload = (raw: string): string[] => {
   const seen = new Set<string>();
@@ -169,17 +159,6 @@ export default function ProductForm({
   const relatedAvailable = catalogue.filter((p) => !relatedIds.includes(p._id));
 
 
-  /**
-   * The product's shots in the order they will be stored — saved URLs and
-   * not-yet-uploaded files in one list, because the primary image is simply
-   * `images[0]` everywhere it is read (PDP gallery, cart line, product cards).
-   * Keeping uploads in a separate array made that order unexpressible: a new
-   * shot always landed after every saved one and could never be made primary.
-   */
-  const [gallery, setGallery] = useState<GalleryItem[]>(() =>
-    (product?.images ?? []).map((url) => ({ url }))
-  );
-
   const [variants, setVariants] = useState<IVariant[]>(() => {
     if (!product) {
       return [{ size: '', price: 0, oldPrice: 0, color: '', material: '', images: [], _files: [] }];
@@ -232,23 +211,6 @@ export default function ProductForm({
     };
   }, []);
 
-  const addImage = (file: File) => {
-    if (gallery.length + 1 > MAX_IMAGES) {
-      toast.error(`You can upload a maximum of ${MAX_IMAGES} images.`);
-      return;
-    }
-    setGallery((prev) => [...prev, { file }]);
-  };
-
-  const replaceImage = (index: number, file: File) =>
-    setGallery((prev) => prev.map((item, i) => (i === index ? { file } : item)));
-
-  const removeImage = (index: number) =>
-    setGallery((prev) => prev.filter((_, i) => i !== index));
-
-  /** Promote to `images[0]`, keeping the rest in their existing order. */
-  const makePrimary = (index: number) =>
-    setGallery((prev) => [prev[index], ...prev.filter((_, i) => i !== index)]);
 
   const validate = (): { errors: FormErrors; message: string | null } => {
     const found: FormErrors = { variantFields: {} };
@@ -333,13 +295,10 @@ export default function ProductForm({
 
     formData.append('relatedProducts', JSON.stringify(relatedIds));
 
-    // One ordered `images` array with a token where each upload belongs, then the
-    // files themselves in that same order — the backend stitches the two back
-    // together, so position (and therefore the primary shot) is preserved.
-    gallery.forEach((item) => formData.append('images', item.url ?? NEW_IMAGE_TOKEN));
-    gallery.forEach((item) => {
-      if (item.file) formData.append('imageFiles', item.file);
-    });
+    /* No product-level `images` are sent: this form no longer manages them.
+       The backend leaves the field untouched when a request omits it, so a
+       piece keeps whatever photographs it already had. Per-variant images are
+       unaffected — they travel on their own `variantImages_<i>` fields. */
 
     try {
       const res = product
@@ -523,54 +482,6 @@ export default function ProductForm({
             </Section>
 
 
-            <Section label="Imagery">
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="font-sans text-[11px] uppercase tracking-[0.15em] text-muted">
-                    Uploads
-                  </span>
-                  <span className="font-sans text-[11px] text-faint tabular-nums">
-                    {gallery.length}/{MAX_IMAGES}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-                  {gallery.map((item, index) => (
-                    <div key={galleryKey(item)} className="relative">
-                      <ImagePicker
-                        url={item.url}
-                        file={item.file}
-                        ratio="aspect-square"
-                        onSelect={(file) => replaceImage(index, file)}
-                        onClear={() => removeImage(index)}
-                      />
-                      {index === 0 ? (
-                        <span className="absolute bottom-0 inset-x-0 eyebrow-tight text-center bg-ink/80 text-ivory py-1">
-                          Primary
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => makePrimary(index)}
-                          className="absolute bottom-0 inset-x-0 eyebrow-tight text-center bg-ivory/90 text-muted border-t border-line py-1 hover:text-ink transition-colors duration-300 ease-editorial"
-                        >
-                          Make primary
-                        </button>
-                      )}
-                    </div>
-                  ))}
-
-                  {gallery.length < MAX_IMAGES && (
-                    <ImagePicker ratio="aspect-square" onSelect={addImage} />
-                  )}
-                </div>
-
-                <p className="font-sans text-[12px] text-faint mt-2">
-                  The primary shot leads the product page and represents the piece
-                  everywhere else on the storefront.
-                </p>
-              </div>
-            </Section>
 
             <Section label="Materials & Links">
               <Field

@@ -34,23 +34,16 @@ export default function VariantEditor({
       { size: '', price: 0, oldPrice: 0, color: '', material: '', images: [], _files: [] },
     ]);
 
-  const applyRemoval = (next: IVariant[]) => {
-    const first = variants[0];
-    const lostFirst = next.length > 0 && !next.includes(first);
-    onChange(
-      lostFirst
-        ? next.map((v, i) =>
-            i === 0
-              ? {
-                  ...v,
-                  images: [...(first.images || []), ...(v.images || [])],
-                  _files: [...(first._files || []), ...(v._files || [])],
-                }
-              : v
-          )
-        : next
-    );
-  };
+  /**
+   * Removing a variant removes ITS images with it.
+   *
+   * This used to move the first variant's images onto whichever variant took its
+   * place, which was right when every image lived on variant one and deleting it
+   * would have lost the product's only photographs. Now that each variant owns
+   * its own, that merge would silently move one option's photography onto a
+   * different option — pictures of the ivory chair filed under the black one.
+   */
+  const applyRemoval = (next: IVariant[]) => onChange(next);
 
   const removeVariant = (index: number) =>
     applyRemoval(variants.filter((_, i) => i !== index));
@@ -251,11 +244,10 @@ export default function VariantEditor({
               </Field>
             </div>
 
-            {i === 0 && (
             <div>
               <div className="flex items-center justify-between mb-2">
                 <span className="font-sans text-[11px] uppercase tracking-[0.15em] text-muted">
-                  Product Images
+                  Variant Images
                 </span>
                 <span className="font-sans text-[11px] text-faint tabular-nums">
                   {imageCount}/{MAX_IMAGES}
@@ -292,10 +284,10 @@ export default function VariantEditor({
               </div>
 
               <p className="font-sans text-[12px] text-faint mt-2">
-                Shared by every size — upload once here.
+                Shown first on the product page when this option is selected.
+                Leave empty to use the product\u2019s own photographs.
               </p>
             </div>
-            )}
           </div>
         );
       })}
