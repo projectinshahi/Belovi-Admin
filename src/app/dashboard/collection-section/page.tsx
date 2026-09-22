@@ -13,6 +13,7 @@ import {
   Input,
   PageHeader,
   Reveal,
+  Select,
   Spinner,
   Textarea,
 } from '@/components/ui';
@@ -29,6 +30,9 @@ import { api, apiErrorMessage, assetUrl } from '@/lib/api';
  * Each scrolling image is previewed exactly as the storefront draws it: the
  * product over the shared white plate on the band's grey. Upload product
  * cut-outs (transparent PNGs); the plate is added automatically.
+ *
+ * Each image can link to a product; on the storefront, clicking it opens that
+ * product's page. Images with no link are not clickable.
  */
 
 /** Mirrors LIMITS in the backend's CollectionSection model. */
@@ -58,18 +62,31 @@ interface Item {
    */
   preview?: string;
   alt: string;
+  /** Id of the linked product; '' for no link. */
+  product: string;
+}
+
+interface ProductOption {
+  _id: string;
+  name: string;
 }
 
 interface Section {
   heading: string;
   description: string;
   mainImage: string;
-  images: { _id?: string; image: string; alt: string }[];
+  /** `product` arrives populated as `{ _id, name }`, or null when unlinked or deleted. */
+  images: { _id?: string; image: string; alt: string; product?: ProductOption | string | null }[];
 }
 
 let nextKey = 0;
 const toItems = (s: Section): Item[] =>
-  s.images.map((i) => ({ key: `k${nextKey++}`, image: i.image, alt: i.alt ?? '' }));
+  s.images.map((i) => ({
+    key: `k${nextKey++}`,
+    image: i.image,
+    alt: i.alt ?? '',
+    product: (typeof i.product === 'object' ? i.product?._id : i.product) ?? '',
+  }));
 
 const revoke = (it: Item) => it.preview && URL.revokeObjectURL(it.preview);
 
@@ -91,6 +108,8 @@ export default function CollectionSectionPage() {
   const [mainImage, setMainImage] = useState('');
   const [mainFile, setMainFile] = useState<File | null>(null);
   const [items, setItems] = useState<Item[]>([]);
+  /** Pieces an image can link to; `null` while loading. */
+  const [products, setProducts] = useState<ProductOption[] | null>(null);
 
   const addRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -117,6 +136,23 @@ export default function CollectionSectionPage() {
       });
   }, []);
 
+  // A failed list only disables linking; the rest of the page still works.
+  useEffect(() => {
+    api
+      .get('/products')
+      .then((res) => {
+        const list: ProductOption[] = (res.data?.data ?? []).map((p: ProductOption) => ({
+          _id: p._id,
+          name: p.name,
+        }));
+        setProducts(list.sort((a, b) => a.name.localeCompare(b.name)));
+      })
+      .catch(() => {
+        toast.error('Could not load products, so image links cannot be changed right now.');
+        setProducts([]);
+      });
+  }, []);
+
   const addFiles = (list: FileList | File[] | null) => {
     const picked = Array.from(list ?? []);
     if (!picked.length) return;
@@ -134,6 +170,7 @@ export default function CollectionSectionPage() {
       key: `k${nextKey++}`,
       file,
       preview: URL.createObjectURL(file),
+      product: '',
       alt: file.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim().slice(0, LIMITS.alt),
     }));
     if (added.length) setItems((prev) => [...prev, ...added]);
@@ -176,8 +213,8 @@ export default function CollectionSectionPage() {
     const files: File[] = [];
     const payload = items.map((it) =>
       it.file
-        ? { file: files.push(it.file) - 1, alt: it.alt.trim() }
-        : { image: it.image, alt: it.alt.trim() }
+        ? { file: files.push(it.file) - 1, alt: it.alt.trim(), product: it.product || null }
+        : { image: it.image, alt: it.alt.trim(), product: it.product || null }
     );
     form.append('images', JSON.stringify(payload));
     files.forEach((f) => form.append('imageFiles', f));
@@ -344,7 +381,9 @@ export default function CollectionSectionPage() {
                   key={it.key}
                   item={it}
                   index={i}
+                  products={products}
                   onAlt={(alt) => patch(it.key, { alt })}
+                  onProduct={(product) => patch(it.key, { product })}
                   onReplace={(file) => {
                     const problem = fileProblem(file);
                     if (problem) return toast.error(problem);
@@ -393,13 +432,17 @@ export default function CollectionSectionPage() {
 function ImageTile({
   item,
   index,
+  products,
   onAlt,
+  onProduct,
   onReplace,
   onRemove,
 }: {
   item: Item;
   index: number;
+  products: ProductOption[] | null;
   onAlt: (alt: string) => void;
+  onProduct: (id: string) => void;
   onReplace: (file: File) => void;
   onRemove: () => void;
 }) {
@@ -439,6 +482,30 @@ function ImageTile({
             onChange={(e) => onAlt(e.target.value)}
             placeholder="e.g. Tantra Chair in magenta"
           />
+        </Field>
+        <Field
+          label="Product Link"
+          htmlFor={`cs-product-${item.key}`}
+          optional
+          hint={item.product ? 'Clicking the image opens this product.' : 'Not clickable.'}
+        >
+          <Select
+            id={`cs-product-${item.key}`}
+            value={item.product}
+            disabled={products === null}
+            onChange={(e) => onProduct(e.target.value)}
+          >
+            <option value="">{products === null ? 'Loading products…' : 'No link'}</option>
+            {/* Keeps a saved link visible even if it is missing from the list. */}
+            {item.product && products && !products.some((p) => p._id === item.product) && (
+              <option value={item.product}>Linked product (not in list)</option>
+            )}
+            {products?.map((p) => (
+              <option key={p._id} value={p._id}>
+                {p.name}
+              </option>
+            ))}
+          </Select>
         </Field>
         <div className="flex items-center justify-between gap-2">
           <span className="font-sans text-[12px] text-faint tabular-nums">#{index + 1}</span>
