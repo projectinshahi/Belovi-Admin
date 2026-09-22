@@ -17,11 +17,15 @@ import {
 import { api, assetUrl, toastApiError } from '@/lib/api';
 
 /**
- * The About Us page editor — the banner and the four blocks beneath it.
+ * The About Us page editor — the banner and the About Us block beneath it.
+ *
+ * The storefront no longer draws the Our Story / Our Vision / Visit Our
+ * Showroom blocks, so they are not edited here. Their stored copy and photos are
+ * posted back unchanged, so a save never wipes them.
  *
  * The page's words used to be fixed in code and this form offered photographs
  * only. They are the studio's now: the banner's heading and subheading, and a
- * heading and description for each of the four blocks, all alongside the
+ * heading and description for the block, all alongside the
  * photograph they sit with — because that is how the page reads, and editing a
  * heading in one place and its picture in another is how the two drift apart.
  *
@@ -44,7 +48,7 @@ interface AboutData {
 }
 
 /**
- * The first three photo/copy rows, in the order the storefront draws them.
+ * The photo/copy rows the storefront draws.
  * `fallback` is the wording the page ships with — shown as the input's
  * placeholder, so it is obvious what an empty field will render.
  */
@@ -59,35 +63,21 @@ const BLOCKS = [
     fallbackBody:
       'Belovi is a luxury furniture brand built around the belief that furniture should do more than fill a space…',
   },
-  {
-    field: 'storyImage',
-    fileField: 'storyImageFile',
-    titleField: 'storyTitle',
-    bodyField: 'storyBody',
-    eyebrow: 'Block two · photo left',
-    title: 'Our Story',
-    fallbackBody:
-      'Belovi began with a simple idea: beautiful spaces are built around meaningful moments…',
-  },
-  {
-    field: 'visionImage',
-    fileField: 'visionImageFile',
-    titleField: 'visionTitle',
-    bodyField: 'visionBody',
-    eyebrow: 'Block three · photo right',
-    title: 'Our Vision',
-    fallbackBody:
-      'We believe furniture should be more than something you place in a room…',
-  },
 ] as const;
 
 /**
  * Text the storefront does not draw, posted back verbatim so it survives a save.
- * The eyebrows and the showroom's address/hours/map have no place in the current
- * design; they stay in the database rather than being silently dropped by every
- * save made here.
+ * The eyebrows, the story/vision/showroom blocks and the showroom's
+ * address/hours/map have no place on the current page; they stay in the
+ * database rather than being silently dropped by every save made here.
  */
 const PRESERVED_TEXT = [
+  'storyTitle',
+  'storyBody',
+  'visionTitle',
+  'visionBody',
+  'showroomTitle',
+  'showroomBody',
   'introEyebrow',
   'profileEyebrow',
   'visionEyebrow',
@@ -103,12 +93,6 @@ const EDITED_TEXT = [
   'introBody',
   'profileTitle',
   'profileBody',
-  'storyTitle',
-  'storyBody',
-  'visionTitle',
-  'visionBody',
-  'showroomTitle',
-  'showroomBody',
 ];
 
 export default function AboutAdminPage() {
@@ -143,9 +127,6 @@ export default function AboutAdminPage() {
       return next;
     });
 
-  /** The showroom row uses the first image of the studio's showroom set. */
-  const showroomImage = (data?.showroomImages ?? []).filter(Boolean)[0] ?? '';
-
   const save = async () => {
     if (!data) return;
     setSaving(true);
@@ -162,19 +143,14 @@ export default function AboutAdminPage() {
 
       // A URL is only sent when no new file replaces it — the server prefers the
       // upload, so sending both would leave the old URL to win on the next load.
+      // Story and vision have no picker any more, so theirs always go back as-is.
       for (const key of ['introImage', 'profileImage', 'storyImage', 'visionImage'] as const) {
         const fileField = `${key}File`;
         if (files[fileField]) form.append(fileField, files[fileField]);
         else form.append(key, (data[key] as string) ?? '');
       }
 
-      if (files.showroomImageFiles) {
-        // Replaces rather than appends: the storefront draws exactly one.
-        form.append('showroomImages', JSON.stringify([]));
-        form.append('showroomImageFiles', files.showroomImageFiles);
-      } else {
-        form.append('showroomImages', JSON.stringify(data.showroomImages ?? []));
-      }
+      form.append('showroomImages', JSON.stringify(data.showroomImages ?? []));
 
       const res = await api.put('/about', form);
       if (res.data?.success) {
@@ -238,7 +214,7 @@ export default function AboutAdminPage() {
       <PageHeader
         eyebrow="Storefront"
         title="About Page"
-        description="The banner, the four blocks beneath it, and their photography."
+        description="The banner, the About Us block beneath it, and their photography."
         action={saveButton}
       />
 
@@ -325,42 +301,6 @@ export default function AboutAdminPage() {
             </Card>
           </Reveal>
         ))}
-
-        <Reveal delay={0.2}>
-          <Card className="p-5 sm:p-6">
-            <CardHeader eyebrow="Block four · photo left" title="Visit Our Showroom" />
-            <div className="mt-4 space-y-4">
-              <Field label="Heading" htmlFor="showroom-title" optional>
-                <Input
-                  id="showroom-title"
-                  value={(data.showroomTitle as string) ?? ''}
-                  onChange={(e) => set('showroomTitle', e.target.value)}
-                  placeholder="Visit Our Showroom"
-                />
-              </Field>
-              <Field
-                label="Description"
-                htmlFor="showroom-body"
-                optional
-                hint="A blank line starts a new paragraph."
-              >
-                <Textarea
-                  id="showroom-body"
-                  rows={4}
-                  value={(data.showroomBody as string) ?? ''}
-                  onChange={(e) => set('showroomBody', e.target.value)}
-                  placeholder="Experience the Belovi collection beyond the screen…"
-                />
-              </Field>
-              {picker(
-                'showroomImageFiles',
-                showroomImage,
-                () => setData((p) => (p ? { ...p, showroomImages: [] } : p)),
-                'Portrait crop, roughly 6:7.'
-              )}
-            </div>
-          </Card>
-        </Reveal>
 
       </div>
 

@@ -382,13 +382,13 @@ export default function BannersPage() {
                     placeholder="Explore the Edit"
                   />
                 </Field>
-                <Field label="Button link" htmlFor="banner-cta-href" hint="e.g. /products?collection=onam">
+                <Field label="Button link" htmlFor="banner-cta-href" hint="e.g. /products?collection=signature">
                   <Input
                     id="banner-cta-href"
                     type="text"
                     value={ctaHref}
                     onChange={(e) => setCtaHref(e.target.value)}
-                    placeholder="/products?collection=onam"
+                    placeholder="/products?collection=signature"
                   />
                 </Field>
               </div>

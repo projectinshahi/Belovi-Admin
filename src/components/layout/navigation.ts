@@ -13,9 +13,11 @@ export type NavKey =
   | 'categories'
   | 'orders'
   | 'banners'
+  | 'collection-section'
   | 'featured-collection'
   | 'about'
   | 'brochures'
+  | 'videos'
   | 'customers';
 
 export interface NavItem {
@@ -68,6 +70,13 @@ export const NAV_ITEMS: NavItem[] = [
     eyebrow: 'Storefront',
   },
   {
+    key: 'collection-section',
+    name: 'Collection Section',
+    href: '/dashboard/collection-section',
+    title: 'Collection Section',
+    eyebrow: 'Storefront',
+  },
+  {
     key: 'featured-collection',
     name: 'Featured Collection',
     href: '/dashboard/featured-collection',
@@ -86,6 +95,13 @@ export const NAV_ITEMS: NavItem[] = [
     name: 'Brochures',
     href: '/dashboard/brochures',
     title: 'Brochures',
+    eyebrow: 'Storefront',
+  },
+  {
+    key: 'videos',
+    name: 'Video Showcase',
+    href: '/dashboard/videos',
+    title: 'Video Showcase',
     eyebrow: 'Storefront',
   },
   {
