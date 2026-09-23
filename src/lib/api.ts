@@ -11,9 +11,23 @@ import { clearAdminSession, ADMIN_TOKEN_KEY } from '@/lib/adminSession';
 // unchanged — this only centralizes how requests are built and how auth
 // failures are surfaced.
 
-/** Origin of the backend, e.g. http://localhost:5000/api */
-const BACKEND_URL =
+/**
+ * Backend API root, e.g. http://localhost:5000/api
+ *
+ * NORMALISED, because this exact mismatch broke production sign-in: the local
+ * .env carries `…:5000/api` while Vercel had `https://belovi-backend.onrender.com`
+ * with no suffix, so `${BACKEND_URL}/v1` resolved to `/v1/auth/login` and every
+ * request 404'd — locally fine, in production dead. The env var may now be given
+ * with or without the trailing `/api`; both land on the same base. A trailing
+ * slash is stripped first so `…/api/` cannot become `…/api//v1`.
+ */
+const RAW_BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000/api';
+
+const BACKEND_URL = (() => {
+  const trimmed = RAW_BACKEND_URL.trim().replace(/\/+$/, '');
+  return /\/api$/.test(trimmed) ? trimmed : `${trimmed}/api`;
+})();
 
 /**
  * Server origin without the `/api` suffix — uploaded images are served from the
