@@ -9,7 +9,7 @@ import Logo from '@/components/ui/Logo';
 import { setAdminSession } from '@/lib/adminSession';
 
 /**
- * Turn a failed login into something the reader can act on.
+ * Turn a failed login into something the reader can act on....
  *
  * `axios` rejects on every non-2xx, so the previous blanket catch reported a
  * wrong password, a rate-limit and a genuinely dead server all as "Connection
