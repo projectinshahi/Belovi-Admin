@@ -482,14 +482,13 @@ export default function OrdersPage() {
                     <dd>&minus;{formatINR(modalOrder.discount)}</dd>
                   </div>
                 )}
-                <div className="flex items-baseline justify-between py-1.5">
-                  <dt className="text-muted">Shipping</dt>
-                  <dd className="text-ink">
-                    {modalOrder.shippingFee > 0
-                      ? formatINR(modalOrder.shippingFee)
-                      : 'Free'}
-                  </dd>
-                </div>
+                {/* Shipping is no longer charged — shown only for past orders that paid it. */}
+                {modalOrder.shippingFee > 0 && (
+                  <div className="flex items-baseline justify-between py-1.5">
+                    <dt className="text-muted">Shipping</dt>
+                    <dd className="text-ink">{formatINR(modalOrder.shippingFee)}</dd>
+                  </div>
+                )}
                 <div className="flex items-baseline justify-between border-t border-line mt-3 pt-4">
                   <dt className="eyebrow text-bronze-deep">Total</dt>
                   <dd className="font-display font-light text-2xl text-ink leading-none">
