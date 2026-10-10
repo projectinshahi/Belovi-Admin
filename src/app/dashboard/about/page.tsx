@@ -304,7 +304,7 @@ export default function AboutAdminPage() {
 
       </div>
 
-      <div className="sticky bottom-0 inset-x-0 p-4 bg-ivory/90 backdrop-blur-md border-t border-line flex justify-end z-20">
+      <div className="sticky -bottom-6 lg:-bottom-8 -mb-6 lg:-mb-8 inset-x-0 p-4 bg-ivory/90 backdrop-blur-md border-t border-line flex justify-end z-20">
         {saveButton}
       </div>
     </>
