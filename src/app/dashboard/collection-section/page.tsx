@@ -410,7 +410,7 @@ export default function CollectionSectionPage() {
                     onDrop={onDrop}
                     className={`w-full aspect-[1.7] flex flex-col items-center justify-center gap-2 border border-dashed
                       font-sans text-[13px] text-muted transition-colors duration-300 ease-editorial
-                      hover:text-ink hover:border-ink/40 ${dragging ? 'border-ink/60 bg-ink/[0.03]' : 'border-line'}`}
+                      hover:text-ink hover:border-ink/40 ${dragging ? 'border-ink/60 bg-ink/3' : 'border-line'}`}
                   >
                     <ImagePlus size={20} aria-hidden />
                     Add or drop images
@@ -422,7 +422,7 @@ export default function CollectionSectionPage() {
         </Reveal>
       </div>
 
-      <div className="sticky bottom-0 inset-x-0 p-4 bg-ivory/90 backdrop-blur-md border-t border-line flex justify-end z-20">
+      <div className="sticky -bottom-6 lg:-bottom-8 -mb-6 lg:-mb-8 inset-x-0 p-4 bg-ivory/90 backdrop-blur-md border-t border-line flex justify-end z-20">
         {saveButton}
       </div>
     </>

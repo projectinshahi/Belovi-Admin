@@ -23,10 +23,14 @@ export default function DashboardLayout({
           <main
             // Marks the real scroller so an open Modal can freeze it — the
             // shell is overflow-hidden, so <body> is not what scrolls here.
+            // `relative` makes this the containing block for stray absolute
+            // children (every `sr-only` file input). Without it they anchor to
+            // the viewport at their spot deep in the list, stretch the document,
+            // and the wheel scrolls the whole shell up off a blank page.
             data-scroll-container
-            className="flex-1 overflow-y-auto thin-scrollbar px-4 sm:px-6 lg:px-8 py-6 lg:py-8"
+            className="relative flex-1 overflow-y-auto thin-scrollbar px-4 sm:px-6 lg:px-8 py-6 lg:py-8"
           >
-            <div className="max-w-[1400px] mx-auto">{children}</div>
+            <div className="max-w-350 mx-auto">{children}</div>
           </main>
         </div>
       </div>
