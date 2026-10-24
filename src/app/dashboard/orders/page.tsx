@@ -2,10 +2,12 @@
 
 import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import { toast } from 'react-hot-toast';
-import { Eye, PackageSearch } from 'lucide-react';
+import { Download, Eye, PackageSearch } from 'lucide-react';
 import { api, toastApiError } from '@/lib/api';
 import { formatINR, formatDate, formatDateTime, shortId } from '@/lib/format';
+import { filterOrders, ordersToCsv } from '@/lib/orderExport';
 import {
+  Button,
   Card,
   PageHeader,
   Table,
@@ -192,19 +194,31 @@ export default function OrdersPage() {
   };
 
   // Filtering stays client-side over the already-fetched list, exactly as
-  // before — no new query parameters reach the API.
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase().replace(/^#/, '');
-    return orders.filter((order) => {
-      if (statusFilter !== 'all' && order.orderStatus !== statusFilter) return false;
-      if (!q) return true;
-      // Match the raw id so both the displayed short id and a full id work.
-      return (
-        order._id.toLowerCase().includes(q) ||
-        (order.user?.name || '').toLowerCase().includes(q)
-      );
-    });
-  }, [orders, query, statusFilter]);
+  // before — no new query parameters reach the API. The rule lives in
+  // `filterOrders` so the Excel export runs the very same one.
+  const filtered = useMemo(
+    () => filterOrders(orders, query, statusFilter),
+    [orders, query, statusFilter]
+  );
+
+  /**
+   * Exports exactly what the filters currently select — every matching order
+   * across all pages, newest first like the table — as a CSV that opens in
+   * Excel. Reads `filtered` at click time, so it is always the latest filters.
+   */
+  const exportOrders = () => {
+    if (filtered.length === 0) return;
+    const blob = new Blob([ordersToCsv(filtered)], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const d = new Date();
+    const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    a.download = `belovi-orders-${statusFilter}-${stamp}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`Exported ${filtered.length} ${filtered.length === 1 ? 'order' : 'orders'}`);
+  };
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
@@ -227,6 +241,17 @@ export default function OrdersPage() {
         eyebrow="Fulfilment"
         title="Orders"
         description="Every order placed through the storefront, with its payment state and progress from processing to delivery."
+        action={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={exportOrders}
+            disabled={loading || filtered.length === 0}
+          >
+            <Download size={13} aria-hidden />
+            Export to Excel
+          </Button>
+        }
       />
 
       <Reveal>
